@@ -24,7 +24,6 @@ def extract_expiry_from_contract(contract_symbol):
     match = re.search(pattern, contract_symbol)
     if match:
         date_str = match.group("date")
-        try:
             if len(date_str) == 6:
                 # Parse as YYMMDD
                 expiry_date = datetime.strptime(date_str, "%y%m%d").date()
@@ -61,14 +60,13 @@ def fetch_all_options(ticker):
     If ticker.options is empty (as for SPX), a fallback expiry is used.
     Returns two DataFrames: one for calls and one for puts, with an added column 'extracted_expiry'.
     """
-    try:
         stock = yf.Ticker(ticker)
         all_calls = []
         all_puts = []
 
         if stock.options:
             for exp in stock.options:
-                try:
+                
                     chain = stock.option_chain(exp)
                     calls = chain.calls
                     puts = chain.puts
@@ -87,7 +85,7 @@ def fetch_all_options(ticker):
             # Fallback for tickers like SPX which return an empty options list.
             current_date = datetime.now().date()
             default_expiry = current_date.strftime("%Y-%m-%d")  # Format for yfinance
-            try:
+            
                 chain = stock.option_chain(default_expiry)
                 calls = chain.calls
                 puts = chain.puts
@@ -122,7 +120,7 @@ def fetch_all_options(ticker):
 # =========================================
 def create_oi_volume_charts(calls, puts):
     """Creates Open Interest and Volume charts."""
-    try:
+    
         # Get underlying price
         stock = yf.Ticker(ticker)
         S = stock.info.get("regularMarketPrice")
@@ -184,7 +182,7 @@ def create_oi_volume_charts(calls, puts):
 
 def create_heatmap(calls, puts, value='volume'):
     """Creates a heatmap of volume or open interest."""
-    try:
+    
         calls_df = calls[['strike', 'openInterest', 'volume']].copy()
         calls_df['OptionType'] = 'Call'
 
@@ -219,7 +217,7 @@ def create_heatmap(calls, puts, value='volume'):
 
 def create_donut_chart(call_volume, put_volume):
     """Creates a donut chart of call vs put volume."""
-    try:
+    
         labels = ['Calls', 'Puts']
         values = [call_volume, put_volume]
         fig = go.Figure(data=[go.Pie(labels=labels, values=values, hole=0.3)])
@@ -235,7 +233,7 @@ def create_donut_chart(call_volume, put_volume):
 
 def create_gex_bubble_chart(calls, puts):
     """Creates a Gamma Exposure bubble chart."""
-    try:
+    
         calls_gex = calls[['strike', 'gamma', 'openInterest']].copy()
         calls_gex['GEX'] = calls_gex['gamma'] * calls_gex['openInterest'] * 100
         calls_gex['Type'] = 'Call'
@@ -295,7 +293,7 @@ def calculate_greeks(flag, S, K, t, sigma):
     t: time to expiration in years.
     flag: 'c' for call, 'p' for put.
     """
-    try:
+    
         d1 = (log(S / K) + (0.5 * sigma**2) * t) / (sigma * sqrt(t))
         d2 = d1 - sigma * sqrt(t)
         delta_val = bs_delta(flag, S, K, t, 0, sigma)  # Risk-free rate set to 0
@@ -332,7 +330,7 @@ def format_ticker(ticker):
 # ------------------------------------------------------------------
 if page == "Options Data":
     st.write("**Select filters below to see updated data, charts, and tables.**")
-    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "AAPL")
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "SPY")
     ticker = format_ticker(user_ticker)
 
     if ticker:
