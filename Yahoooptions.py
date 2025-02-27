@@ -332,7 +332,7 @@ def format_ticker(ticker):
 # ------------------------------------------------------------------
 if page == "Options Data":
     st.write("**Select filters below to see updated data, charts, and tables.**")
-    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "AAPL")
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "SPY")
     ticker = format_ticker(user_ticker)
 
     if ticker:
