@@ -4,16 +4,18 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import math
 from math import log, sqrt
 from py_vollib.black_scholes.greeks.analytical import delta as bs_delta
 from py_vollib.black_scholes.greeks.analytical import gamma as bs_gamma
 from py_vollib.black_scholes.greeks.analytical import vega as bs_vega
 import re
+import time  # <-- new import
 
 st.set_page_config(layout="wide")
 
 # -------------------------------
-# Helper Functions
+# Helper Funments
 # -------------------------------
 def extract_expiry_from_contract(contract_symbol):
     """
@@ -121,9 +123,8 @@ def fetch_all_options(ticker):
 # 2) Existing Visualization Functions
 # =========================================
 def create_oi_volume_charts(calls, puts):
-    """Creates Open Interest and Volume charts."""
+     # Get underlying price
     try:
-        # Get underlying price
         stock = yf.Ticker(ticker)
         S = stock.info.get("regularMarketPrice")
         if S is None:
@@ -176,6 +177,7 @@ def create_oi_volume_charts(calls, puts):
         fig_oi = add_current_price_line(fig_oi, S)
         fig_volume = add_current_price_line(fig_volume, S)
 
+
         return fig_oi, fig_volume
 
     except Exception as e:
@@ -183,7 +185,6 @@ def create_oi_volume_charts(calls, puts):
         return None, None
 
 def create_heatmap(calls, puts, value='volume'):
-    """Creates a heatmap of volume or open interest."""
     try:
         calls_df = calls[['strike', 'openInterest', 'volume']].copy()
         calls_df['OptionType'] = 'Call'
@@ -212,13 +213,11 @@ def create_heatmap(calls, puts, value='volume'):
         fig.update_layout(hovermode='closest')
 
         return fig
-
     except Exception as e:
         st.error(f"Error creating heatmap: {e}")
         return None
 
 def create_donut_chart(call_volume, put_volume):
-    """Creates a donut chart of call vs put volume."""
     try:
         labels = ['Calls', 'Puts']
         values = [call_volume, put_volume]
@@ -234,7 +233,6 @@ def create_donut_chart(call_volume, put_volume):
         return None
 
 def create_gex_bubble_chart(calls, puts):
-    """Creates a Gamma Exposure bubble chart."""
     try:
         calls_gex = calls[['strike', 'gamma', 'openInterest']].copy()
         calls_gex['GEX'] = calls_gex['gamma'] * calls_gex['openInterest'] * 100
@@ -332,95 +330,198 @@ def format_ticker(ticker):
 # ------------------------------------------------------------------
 if page == "Options Data":
     st.write("**Select filters below to see updated data, charts, and tables.**")
-    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "SPY")
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "AAPL")
+    ticker = format_ticker(user_ticker)
+    if ticker:
+        try:
+            calls, puts = fetch_all_options(ticker)
+
+            if calls.empty and puts.empty:
+                st.warning("No options data available for this ticker.")
+            else:
+                combined = pd.concat([calls, puts])
+                combined = combined.dropna(subset=['extracted_expiry'])
+                unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
+
+                if not unique_exps:
+                    st.error("No expiration dates could be extracted from contract symbols.")
+                else:
+                    unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
+                    expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str)
+                    selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
+
+                    calls = calls[calls['extracted_expiry'] == selected_expiry]
+                    puts = puts[puts['extracted_expiry'] == selected_expiry]
+
+                    if calls.empty and puts.empty:
+                        st.warning("No options data found for the selected expiry.")
+                    else:
+                        min_strike = float(min(calls['strike'].min(), puts['strike'].min()))
+                        max_strike = float(max(calls['strike'].max(), puts['strike'].max()))
+
+                        strike_range = st.slider(
+                            "Select Strike Range:",
+                            min_value=min_strike,
+                            max_value=max_strike,
+                            value=(min_strike, max_strike),
+                            step=1.0
+                        )
+
+                        volume_over_oi = st.checkbox("Show only rows where Volume > Open Interest")
+
+                        min_selected, max_selected = strike_range
+                        calls_filtered = calls[(calls['strike'] >= min_selected) & (calls['strike'] <= max_selected)].copy()
+                        puts_filtered = puts[(puts['strike'] >= min_selected) & (puts['strike'] <= max_selected)].copy()
+
+                        if volume_over_oi:
+                            calls_filtered = calls_filtered[calls_filtered['volume'] > calls_filtered['openInterest']]
+                            puts_filtered = puts_filtered[puts_filtered['volume'] > puts_filtered['openInterest']]
+
+                        if calls_filtered.empty and puts_filtered.empty:
+                            st.warning("No data left after applying filters.")
+                        else:
+                            charts_container = st.container()
+                            heatmaps_container = st.container()
+                            tables_container = st.container()
+
+                            with charts_container:
+                                st.subheader(f"Options Data for {ticker} (Expiry: {expiry_date_str})")
+                                if not calls_filtered.empty and not puts_filtered.empty:
+                                    fig_oi, fig_volume = create_oi_volume_charts(calls_filtered, puts_filtered)
+                                    if fig_oi and fig_volume:
+                                        st.plotly_chart(fig_oi, use_container_width=True, key="oi_chart")
+                                        st.plotly_chart(fig_volume, use_container_width=True, key="vol_chart")
+                                    else:
+                                        st.warning("Could not generate OI/Volume charts.")
+                                else:
+                                    st.warning("No data to chart for the chosen filters.")
+
+                            with heatmaps_container:
+                                if not calls_filtered.empty and not puts_filtered.empty:
+                                    st.write("### Heatmaps")
+                                    volume_heatmap = create_heatmap(calls_filtered, puts_filtered, value='volume')
+                                    oi_heatmap = create_heatmap(calls_filtered, puts_filtered, value='openInterest')
+                                    if volume_heatmap and oi_heatmap:
+                                        st.plotly_chart(volume_heatmap, use_container_width=True, key="vol_heatmap")
+                                        st.plotly_chart(oi_heatmap, use_container_width=True, key="oi_heatmap")
+                                    else:
+                                        st.warning("Could not generate heatmaps.")
+                            with tables_container:
+                                st.write("### Filtered Data Tables")
+                                if not calls_filtered.empty:
+                                    st.write("**Calls Table**")
+                                    st.dataframe(calls_filtered)
+                                else:
+                                    st.write("No calls match filters.")
+
+                                if not puts_filtered.empty:
+                                    st.write("**Puts Table**")
+                                    st.dataframe(puts_filtered)
+                                else:
+                                    st.write("No puts match filters.")
+        except Exception as e:
+            st.error(f"An error occurred on Options Data Page: {e}")
+
+# ------------------------------------------------------------------
+# B) VOLUME RATIO PAGE
+# ------------------------------------------------------------------
+elif page == "Volume Ratio":
+    st.header("Call vs Put Volume Ratio")
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "AAPL")
     ticker = format_ticker(user_ticker)
 
     if ticker:
-        with st.spinner(f"Fetching options data for {ticker}..."):
+        try:
+            calls, puts = fetch_all_options(ticker)
+            if calls.empty or puts.empty:
+                st.warning("No options data available for this ticker.")
+            else:
+                call_volume = calls['volume'].sum()
+                put_volume = puts['volume'].sum()
+
+                # Display the donut chart
+                donut_chart = create_donut_chart(call_volume, put_volume)
+                if donut_chart:
+                    st.plotly_chart(donut_chart, use_container_width=True)
+                else:
+                    st.error("Could not generate donut chart.")
+        except Exception as e:
+            st.error(f"An error occurred on Volume Ratio Page: {e}")
+
+# ------------------------------------------------------------------
+# C) GAMMA EXPOSURE PAGE
+# ------------------------------------------------------------------
+elif page == "Gamma Exposure":
+    st.header("Gamma Exposure (GEX) Analysis")
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX, NDX):", "AAPL")
+    ticker = format_ticker(user_ticker)
+
+    if ticker:
+        try:
             calls, puts = fetch_all_options(ticker)
 
-        if calls.empty and puts.empty:
-            st.warning("No options data available for this ticker.")
-        else:
-            combined = pd.concat([calls, puts])
-            combined = combined.dropna(subset=['extracted_expiry'])
-            unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
-
-            if not unique_exps:
-                st.error("No expiration dates could be extracted from contract symbols.")
+            if calls.empty or puts.empty:
+                st.warning("No options data available for this ticker.")
             else:
-                unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
-                expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str)
-                selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
-
-                calls = calls[calls['extracted_expiry'] == selected_expiry]
-                puts = puts[puts['extracted_expiry'] == selected_expiry]
-
-                if calls.empty and puts.empty:
-                    st.warning("No options data found for the selected expiry.")
+                gex_chart = create_gex_bubble_chart(calls, puts)
+                if gex_chart:
+                    st.plotly_chart(gex_chart, use_container_width=True)
                 else:
-                    min_strike = float(min(calls['strike'].min(), puts['strike'].min()))
-                    max_strike = float(max(calls['strike'].max(), puts['strike'].max()))
+                    st.error("Could not generate Gamma Exposure chart.")
 
-                    strike_range = st.slider(
-                        "Select Strike Range:",
-                        min_value=min_strike,
-                        max_value=max_strike,
-                        value=(min_strike, max_strike),
-                        step=1.0
-                    )
+        except Exception as e:
+            st.error(f"An error occurred on Gamma Exposure Page: {e}")
 
-                    volume_over_oi = st.checkbox("Show only rows where Volume > Open Interest")
+# ------------------------------------------------------------------
+# D) CALCULATED GREEKS PAGE
+# ------------------------------------------------------------------
+elif page == "Calculated Greeks":
+    st.header("Calculate Option Greeks")
+    st.write("Enter the option parameters to calculate Delta, Gamma, and Vanna.")
 
-                    min_selected, max_selected = strike_range
-                    calls_filtered = calls[(calls['strike'] >= min_selected) & (calls['strike'] <= max_selected)].copy()
-                    puts_filtered = puts[(puts['strike'] >= min_selected) & (puts['strike'] <= max_selected)].copy()
+    # Input fields
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA):", "AAPL")
+    ticker = format_ticker(user_ticker)
 
-                    if volume_over_oi:
-                        calls_filtered = calls_filtered[calls_filtered['volume'] > calls_filtered['openInterest']]
-                        puts_filtered = puts_filtered[puts_filtered['volume'] > puts_filtered['openInterest']]
+    if ticker:
+        try:
+            stock = yf.Ticker(ticker)
+            S = stock.info.get("regularMarketPrice")
+            if S is None:
+                S = stock.fast_info.get("lastPrice")
+            if S is None:
+                st.error("Could not fetch underlying price.")
+            else:
+                S = float(S)
+                K = st.number_input("Strike Price:", value=S)
+                expiry_date_str = st.date_input("Expiration Date:", value=datetime.now().date())
+                expiry_date = pd.to_datetime(expiry_date_str).date()
+                t = (expiry_date - datetime.now().date()).days / 365.25
+                sigma = st.number_input("Volatility (e.g., 0.2 for 20%):", value=0.2)
+                option_type = st.selectbox("Option Type:", ["Call", "Put"])
+                flag = 'c' if option_type == "Call" else 'p'
 
-                    if calls_filtered.empty and puts_filtered.empty:
-                        st.warning("No data left after applying filters.")
-                    else:
-                        charts_container = st.container()
-                        heatmaps_container = st.container()
-                        tables_container = st.container()
+                if st.button("Calculate Greeks"):
+                    delta, gamma, vanna = calculate_greeks(flag, S, K, t, sigma)
+                    if delta is not None and gamma is not None and vanna is not None:
+                        st.write(f"Delta: {delta:.4f}")
+                        st.write(f"Gamma: {gamma:.4f}")
+                        st.write(f"Vanna: {vanna:.4f}")
+        except Exception as e:
+            st.error(f"An error occurred on Calculated Greeks Page: {e}")
 
-                        with charts_container:
-                            st.subheader(f"Options Data for {ticker} (Expiry: {expiry_date_str})")
-                            if not calls_filtered.empty and not puts_filtered.empty:
-                                fig_oi, fig_volume = create_oi_volume_charts(calls_filtered, puts_filtered)
-                                if fig_oi and fig_volume: # Check if the figures are valid
-                                    st.plotly_chart(fig_oi, use_container_width=True, key="oi_chart")
-                                    st.plotly_chart(fig_volume, use_container_width=True, key="vol_chart")
-                                else:
-                                    st.warning("Could not generate OI/Volume charts.")
-                            else:
-                                st.warning("No data to chart for the chosen filters.")
+# ------------------------------------------------------------------
+# E) VANNA EXPOSURE PAGE
+# ------------------------------------------------------------------
+elif page == "Vanna Exposure":
+    st.header("Vanna Exposure Analysis")
+    st.write("This page will display Vanna Exposure data.")
+    st.write("Functionality to be implemented...")
 
-                        with heatmaps_container:
-                            if not calls_filtered.empty and not puts_filtered.empty:
-                                st.write("### Heatmaps")
-                                volume_heatmap = create_heatmap(calls_filtered, puts_filtered, value='volume')
-                                oi_heatmap = create_heatmap(calls_filtered, puts_filtered, value='openInterest')
-                                if volume_heatmap and oi_heatmap: # Check if the figures are valid
-                                    st.plotly_chart(volume_heatmap, use_container_width=True, key="vol_heatmap")
-                                    st.plotly_chart(oi_heatmap, use_container_width=True, key="oi_heatmap")
-                                else:
-                                    st.warning("Could not generate heatmaps.")
-                        with tables_container:
-                            st.write("### Filtered Data Tables")
-                            if not calls_filtered.empty:
-                                st.write("**Calls Table**")
-                                st.dataframe(calls_filtered)
-                            else:
-                                st.write("No calls match filters.")
-
-                            if not puts_filtered.empty:
-                                st.write("**Puts Table**")
-                                st.dataframe(puts_filtered)
-                            else:
-                                st.write("No puts match filters.")
-
-# Add similar code blocks for other pages (Volume Ratio, Gamma Exposure, etc.)
+# ------------------------------------------------------------------
+# F) DELTA EXPOSURE PAGE
+# ------------------------------------------------------------------
+elif page == "Delta Exposure":
+    st.header("Delta Exposure Analysis")
+    st.write("This page will display Delta Exposure data.")
+    st.write("Functionality to be implemented...")
