@@ -213,52 +213,6 @@ def create_donut_chart(call_volume, put_volume):
     fig.update_traces(hoverinfo='label+percent+value')
     return fig
 
-def create_gex_bubble_chart(calls, puts):
-    calls_gex = calls[['strike', 'gamma', 'openInterest']].copy()
-    calls_gex['GEX'] = calls_gex['gamma'] * calls_gex['openInterest'] * 100
-    calls_gex['Type'] = 'Call'
-    
-    puts_gex = puts[['strike', 'gamma', 'openInterest']].copy()
-    puts_gex['GEX'] = puts_gex['gamma'] * puts_gex['openInterest'] * 100
-    puts_gex['Type'] = 'Put'
-    
-    gex_df = pd.concat([calls_gex, puts_gex], ignore_index=True)
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=gex_df.loc[gex_df['Type'] == 'Call', 'strike'],
-        y=gex_df.loc[gex_df['Type'] == 'Call', 'GEX'],
-        mode='markers',
-        name='Calls',
-        marker=dict(
-            size=gex_df.loc[gex_df['Type'] == 'Call', 'GEX'].abs() / 1000,
-            color='green',
-            opacity=0.6,
-            line=dict(width=1, color='DarkSlateGrey')
-        ),
-        hovertemplate='Strike: %{x}<br>Gamma Exp: %{y}'
-    ))
-    fig.add_trace(go.Scatter(
-        x=gex_df.loc[gex_df['Type'] == 'Put', 'strike'],
-        y=gex_df.loc[gex_df['Type'] == 'Put', 'GEX'],
-        mode='markers',
-        name='Puts',
-        marker=dict(
-            size=gex_df.loc[gex_df['Type'] == 'Put', 'GEX'].abs() / 1000,
-            color='red',
-            opacity=0.6,
-            line=dict(width=1, color='DarkSlateGrey')
-        ),
-        hovertemplate='Strike: %{x}<br>Gamma Exp: %{y}'
-    ))
-    fig.update_layout(
-        title='Gamma Exposure (GEX) Bubble Chart',
-        xaxis_title='Strike Price',
-        yaxis_title='Gamma Exposure',
-        hovermode='closest',
-        showlegend=True
-    )
-    return fig
 
 # =========================================
 # 3) Greek Calculation Helper Function
@@ -377,8 +331,6 @@ if page == "Options Data":
                             else:
                                 st.write("No puts match filters.")
 
-
-elif page == "Volume Ratio":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA):", "AAPL", key="greek_ticker")
     ticker = format_ticker(user_ticker)
     if ticker:
@@ -407,8 +359,6 @@ elif page == "Volume Ratio":
                     st.markdown(f"**Total Call Volume:** {call_volume}")
                     st.markdown(f"**Total Put Volume:** {put_volume}")
 
-
-elif page == "Gamma Exposure":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="gamma_ticker")
     ticker = format_ticker(user_ticker)  # Apply formatting here
     
@@ -500,9 +450,6 @@ elif page == "Gamma Exposure":
                         fig_bar = create_gex_bar_chart(calls, puts)
                         st.plotly_chart(fig_bar, use_container_width=True)
 
-
-
-elif page == "Delta Exposure":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="delta_ticker")
     ticker = format_ticker(user_ticker)  # Apply formatting here
     
@@ -593,7 +540,6 @@ elif page == "Delta Exposure":
                         st.plotly_chart(fig_bar, use_container_width=True)
 
 
-elif page == "Vanna Exposure":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="vanna_ticker")
     ticker = format_ticker(user_ticker)  # Apply formatting here
     
@@ -683,7 +629,7 @@ elif page == "Vanna Exposure":
                         fig_bar = create_vex_bar_chart(calls, puts)
                         st.plotly_chart(fig_bar, use_container_width=True)
 
-elif page == "Calculated Greeks":
+
     st.write("This page calculates delta, gamma, and vanna based on market data.")
     
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA):", "AAPL", key="greek_ticker")
@@ -761,8 +707,6 @@ elif page == "Calculated Greeks":
                             fig = px.scatter(df, x="strike", y="calc_delta", title=f"{typ}: Delta vs. Strike",
                                              labels={"strike": "Strike", "calc_delta": "Calculated Delta"})
                             st.plotly_chart(fig, use_container_width=True)
-
-
 
 
 # -----------------------------------------
