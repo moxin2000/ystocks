@@ -286,6 +286,10 @@ def calculate_greeks(flag, S, K, t, sigma):
 # =========================================
 st.title("Real-Time Stock Options Data")
 
+st.sidebar.title("Navigation")
+page = st.sidebar.radio("Select a page:", 
+                         ["Options Data"])
+
 # Helper function to format tickers for indices
 def format_ticker(ticker):
     ticker = ticker.upper()
