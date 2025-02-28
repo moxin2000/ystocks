@@ -213,6 +213,52 @@ def create_donut_chart(call_volume, put_volume):
     fig.update_traces(hoverinfo='label+percent+value')
     return fig
 
+def create_gex_bubble_chart(calls, puts):
+    calls_gex = calls[['strike', 'gamma', 'openInterest']].copy()
+    calls_gex['GEX'] = calls_gex['gamma'] * calls_gex['openInterest'] * 100
+    calls_gex['Type'] = 'Call'
+    
+    puts_gex = puts[['strike', 'gamma', 'openInterest']].copy()
+    puts_gex['GEX'] = puts_gex['gamma'] * puts_gex['openInterest'] * 100
+    puts_gex['Type'] = 'Put'
+    
+    gex_df = pd.concat([calls_gex, puts_gex], ignore_index=True)
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=gex_df.loc[gex_df['Type'] == 'Call', 'strike'],
+        y=gex_df.loc[gex_df['Type'] == 'Call', 'GEX'],
+        mode='markers',
+        name='Calls',
+        marker=dict(
+            size=gex_df.loc[gex_df['Type'] == 'Call', 'GEX'].abs() / 1000,
+            color='green',
+            opacity=0.6,
+            line=dict(width=1, color='DarkSlateGrey')
+        ),
+        hovertemplate='Strike: %{x}<br>Gamma Exp: %{y}'
+    ))
+    fig.add_trace(go.Scatter(
+        x=gex_df.loc[gex_df['Type'] == 'Put', 'strike'],
+        y=gex_df.loc[gex_df['Type'] == 'Put', 'GEX'],
+        mode='markers',
+        name='Puts',
+        marker=dict(
+            size=gex_df.loc[gex_df['Type'] == 'Put', 'GEX'].abs() / 1000,
+            color='red',
+            opacity=0.6,
+            line=dict(width=1, color='DarkSlateGrey')
+        ),
+        hovertemplate='Strike: %{x}<br>Gamma Exp: %{y}'
+    ))
+    fig.update_layout(
+        title='Gamma Exposure (GEX) Bubble Chart',
+        xaxis_title='Strike Price',
+        yaxis_title='Gamma Exposure',
+        hovermode='closest',
+        showlegend=True
+    )
+    return fig
 
 # =========================================
 # 3) Greek Calculation Helper Function
@@ -242,7 +288,7 @@ st.title("Real-Time Stock Options Data")
 
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Select a page:", 
-                         ["Options Data"])
+                         ["Options Data", "Volume Ratio", "Gamma Exposure", "Calculated Greeks", "Vanna Exposure", "Delta Exposure"])
 
 # Helper function to format tickers for indices
 def format_ticker(ticker):
@@ -331,6 +377,10 @@ if page == "Options Data":
                             else:
                                 st.write("No puts match filters.")
 
+# ------------------------------------------------------------------
+# B) VOLUME RATIO PAGE
+# ------------------------------------------------------------------
+elif page == "Volume Ratio":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA):", "AAPL", key="greek_ticker")
     ticker = format_ticker(user_ticker)
     if ticker:
@@ -359,6 +409,10 @@ if page == "Options Data":
                     st.markdown(f"**Total Call Volume:** {call_volume}")
                     st.markdown(f"**Total Put Volume:** {put_volume}")
 
+# ------------------------------------------------------------------
+# C) GAMMA EXPOSURE PAGE 
+# ------------------------------------------------------------------
+elif page == "Gamma Exposure":
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="gamma_ticker")
     ticker = format_ticker(user_ticker)  # Apply formatting here
     
@@ -417,7 +471,45 @@ if page == "Options Data":
                         
                         calls["GEX"] = calls["calc_gamma"] * calls["openInterest"] * 100
                         puts["GEX"] = puts["calc_gamma"] * puts["openInterest"] * 100
-
+                        
+                        # Bubble Chart for Gamma Exposure
+                        fig_bubble = go.Figure()
+                        if not calls.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=calls['strike'],
+                                y=calls['GEX'],
+                                mode='markers',
+                                name='Calls',
+                                marker=dict(
+                                    size=calls['GEX'].abs() / 1000,
+                                    color='green',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Gamma Exposure: %{y}'
+                            ))
+                        if not puts.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=puts['strike'],
+                                y=puts['GEX'],
+                                mode='markers',
+                                name='Puts',
+                                marker=dict(
+                                    size=puts['GEX'].abs() / 1000,
+                                    color='red',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Gamma Exposure: %{y}'
+                            ))
+                        fig_bubble.update_layout(
+                            title='Gamma Exposure',
+                            xaxis_title='Strike Price',
+                            yaxis_title='Gamma Exposure',
+                            hovermode='closest',
+                            showlegend=True
+                        )
+                        st.plotly_chart(fig_bubble, use_container_width=True)
                         
                         # Grouped Bar Chart for Gamma Exposure by Strike
                         def create_gex_bar_chart(calls, puts):
@@ -450,186 +542,10 @@ if page == "Options Data":
                         fig_bar = create_gex_bar_chart(calls, puts)
                         st.plotly_chart(fig_bar, use_container_width=True)
 
-    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="delta_ticker")
-    ticker = format_ticker(user_ticker)  # Apply formatting here
-    
-    if ticker:
-        calls, puts = fetch_all_options(ticker)
-        if calls.empty and puts.empty:
-            st.warning("No options data available for this ticker.")
-        else:
-            combined = pd.concat([calls, puts])
-            combined = combined.dropna(subset=['extracted_expiry'])
-            unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
-            if not unique_exps:
-                st.error("No expiration dates could be extracted from contract symbols.")
-            else:
-                unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
-                expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str, key="delta_expiry")
-                selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
-                calls = calls[calls['extracted_expiry'] == selected_expiry]
-                puts = puts[puts['extracted_expiry'] == selected_expiry]
-                
-                # Get underlying price
-                stock = yf.Ticker(ticker)
-                S = stock.info.get("regularMarketPrice")
-                if S is None:
-                    S = stock.fast_info.get("lastPrice")
-                if S is None:
-                    st.error("Could not fetch underlying price.")
-                else:
-                    S = round(S, 2)
-                    st.markdown(f"**Underlying Price (S):** {S}")
-                    today = datetime.today().date()
-                    t_days = (selected_expiry - today).days
-                    if t_days <= 0:
-                        st.error("The selected expiration date is in the past!")
-                    else:
-                        t = t_days / 365.0
-                        st.markdown(f"**Time to Expiration (t in years):** {t:.4f}")
-                        
-                        def compute_delta(row, flag):
-                            sigma = row.get("impliedVolatility", None)
-                            if sigma is None or sigma <= 0:
-                                return None
-                            try:
-                                delta_val, _, _ = calculate_greeks(flag, S, row["strike"], t, sigma)
-                                return delta_val
-                            except Exception:
-                                return None
-                        
-                        calls = calls.copy()
-                        puts = puts.copy()
-                        calls["calc_delta"] = calls.apply(lambda row: compute_delta(row, "c"), axis=1)
-                        puts["calc_delta"] = puts.apply(lambda row: compute_delta(row, "p"), axis=1)
-                        
-                        calls = calls.dropna(subset=["calc_delta"])
-                        puts = puts.dropna(subset=["calc_delta"])
-                        
-                        calls["DEX"] = calls["calc_delta"] * calls["openInterest"] * 100
-                        puts["DEX"] = puts["calc_delta"] * puts["openInterest"] * 100
-
-                        
-                        # Grouped Bar Chart for Delta Exposure by Strike
-                        def create_dex_bar_chart(calls, puts):
-                            calls_df = calls[['strike', 'DEX']].copy()
-                            calls_df['OptionType'] = 'Call'
-                            puts_df = puts[['strike', 'DEX']].copy()
-                            puts_df['OptionType'] = 'Put'
-                            combined_chart = pd.concat([calls_df, puts_df], ignore_index=True)
-                            combined_chart.sort_values(by='strike', inplace=True)
-                            fig = px.bar(
-                                combined_chart,
-                                x='strike',
-                                y='DEX',
-                                color='OptionType',
-                                title='Delta Exposure by Strike',
-                                barmode='group'
-                            )
-                            fig.update_layout(
-                                xaxis_title='Strike Price',
-                                yaxis_title='Delta Exposure',
-                                hovermode='x unified'
-                            )
-                            fig.update_xaxes(rangeslider=dict(visible=True))
-
-                            fig = add_current_price_line(fig, S)  # Add price line
-                            return fig
-                        
-                        fig_bar = create_dex_bar_chart(calls, puts)
-                        st.plotly_chart(fig_bar, use_container_width=True)
-
-
-    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="vanna_ticker")
-    ticker = format_ticker(user_ticker)  # Apply formatting here
-    
-    if ticker:
-        calls, puts = fetch_all_options(ticker)
-        if calls.empty and puts.empty:
-            st.warning("No options data available for this ticker.")
-        else:
-            combined = pd.concat([calls, puts])
-            combined = combined.dropna(subset=['extracted_expiry'])
-            unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
-            if not unique_exps:
-                st.error("No expiration dates could be extracted from contract symbols.")
-            else:
-                unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
-                expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str, key="vanna_expiry")
-                selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
-                calls = calls[calls['extracted_expiry'] == selected_expiry]
-                puts = puts[puts['extracted_expiry'] == selected_expiry]
-                
-                # Get underlying price
-                stock = yf.Ticker(ticker)
-                S = stock.info.get("regularMarketPrice")
-                if S is None:
-                    S = stock.fast_info.get("lastPrice")
-                if S is None:
-                    st.error("Could not fetch underlying price.")
-                else:
-                    S = round(S, 2)
-                    st.markdown(f"**Underlying Price (S):** {S}")
-                    today = datetime.today().date()
-                    t_days = (selected_expiry - today).days
-                    if t_days <= 0:
-                        st.error("The selected expiration date is in the past!")
-                    else:
-                        t = t_days / 365.0
-                        st.markdown(f"**Time to Expiration (t in years):** {t:.4f}")
-                        
-                        def compute_vanna(row, flag):
-                            sigma = row.get("impliedVolatility", None)
-                            if sigma is None or sigma <= 0:
-                                return None
-                            try:
-                                _, _, vanna_val = calculate_greeks(flag, S, row["strike"], t, sigma)
-                                return vanna_val
-                            except Exception:
-                                return None
-                        
-                        calls = calls.copy()
-                        puts = puts.copy()
-                        calls["calc_vanna"] = calls.apply(lambda row: compute_vanna(row, "c"), axis=1)
-                        puts["calc_vanna"] = puts.apply(lambda row: compute_vanna(row, "p"), axis=1)
-                        
-                        calls = calls.dropna(subset=["calc_vanna"])
-                        puts = puts.dropna(subset=["calc_vanna"])
-                        
-                        calls["VEX"] = calls["calc_vanna"] * calls["openInterest"] * 100
-                        puts["VEX"] = puts["calc_vanna"] * puts["openInterest"] * 100
-
-                        
-                        # Grouped Bar Chart for Vanna Exposure by Strike
-                        def create_vex_bar_chart(calls, puts):
-                            calls_df = calls[['strike', 'VEX']].copy()
-                            calls_df['OptionType'] = 'Call'
-                            puts_df = puts[['strike', 'VEX']].copy()
-                            puts_df['OptionType'] = 'Put'
-                            combined_chart = pd.concat([calls_df, puts_df], ignore_index=True)
-                            combined_chart.sort_values(by='strike', inplace=True)
-                            fig = px.bar(
-                                combined_chart,
-                                x='strike',
-                                y='VEX',
-                                color='OptionType',
-                                title='Vanna Exposure by Strike',
-                                barmode='group'
-                            )
-                            fig.update_layout(
-                                xaxis_title='Strike Price',
-                                yaxis_title='Vanna Exposure',
-                                hovermode='x unified'
-                            )
-                            fig.update_xaxes(rangeslider=dict(visible=True))
-
-                            fig = add_current_price_line(fig, S)  # Add price line
-                            return fig
-                        
-                        fig_bar = create_vex_bar_chart(calls, puts)
-                        st.plotly_chart(fig_bar, use_container_width=True)
-
-
+# ------------------------------------------------------------------
+# D) CALCULATED GREEKS PAGE
+# ------------------------------------------------------------------
+elif page == "Calculated Greeks":
     st.write("This page calculates delta, gamma, and vanna based on market data.")
     
     user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA):", "AAPL", key="greek_ticker")
@@ -708,6 +624,267 @@ if page == "Options Data":
                                              labels={"strike": "Strike", "calc_delta": "Calculated Delta"})
                             st.plotly_chart(fig, use_container_width=True)
 
+# =========================================
+# 5) Vanna Exposure Page
+# =========================================
+elif page == "Vanna Exposure":
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="vanna_ticker")
+    ticker = format_ticker(user_ticker)  # Apply formatting here
+    
+    if ticker:
+        calls, puts = fetch_all_options(ticker)
+        if calls.empty and puts.empty:
+            st.warning("No options data available for this ticker.")
+        else:
+            combined = pd.concat([calls, puts])
+            combined = combined.dropna(subset=['extracted_expiry'])
+            unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
+            if not unique_exps:
+                st.error("No expiration dates could be extracted from contract symbols.")
+            else:
+                unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
+                expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str, key="vanna_expiry")
+                selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
+                calls = calls[calls['extracted_expiry'] == selected_expiry]
+                puts = puts[puts['extracted_expiry'] == selected_expiry]
+                
+                # Get underlying price
+                stock = yf.Ticker(ticker)
+                S = stock.info.get("regularMarketPrice")
+                if S is None:
+                    S = stock.fast_info.get("lastPrice")
+                if S is None:
+                    st.error("Could not fetch underlying price.")
+                else:
+                    S = round(S, 2)
+                    st.markdown(f"**Underlying Price (S):** {S}")
+                    today = datetime.today().date()
+                    t_days = (selected_expiry - today).days
+                    if t_days <= 0:
+                        st.error("The selected expiration date is in the past!")
+                    else:
+                        t = t_days / 365.0
+                        st.markdown(f"**Time to Expiration (t in years):** {t:.4f}")
+                        
+                        def compute_vanna(row, flag):
+                            sigma = row.get("impliedVolatility", None)
+                            if sigma is None or sigma <= 0:
+                                return None
+                            try:
+                                _, _, vanna_val = calculate_greeks(flag, S, row["strike"], t, sigma)
+                                return vanna_val
+                            except Exception:
+                                return None
+                        
+                        calls = calls.copy()
+                        puts = puts.copy()
+                        calls["calc_vanna"] = calls.apply(lambda row: compute_vanna(row, "c"), axis=1)
+                        puts["calc_vanna"] = puts.apply(lambda row: compute_vanna(row, "p"), axis=1)
+                        
+                        calls = calls.dropna(subset=["calc_vanna"])
+                        puts = puts.dropna(subset=["calc_vanna"])
+                        
+                        calls["VEX"] = calls["calc_vanna"] * calls["openInterest"] * 100
+                        puts["VEX"] = puts["calc_vanna"] * puts["openInterest"] * 100
+                        
+                        # Bubble Chart for Vanna Exposure
+                        fig_bubble = go.Figure()
+                        if not calls.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=calls['strike'],
+                                y=calls['VEX'],
+                                mode='markers',
+                                name='Calls',
+                                marker=dict(
+                                    size=calls['VEX'].abs() / 1000,
+                                    color='green',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Vanna Exposure: %{y}'
+                            ))
+                        if not puts.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=puts['strike'],
+                                y=puts['VEX'],
+                                mode='markers',
+                                name='Puts',
+                                marker=dict(
+                                    size=puts['VEX'].abs() / 1000,
+                                    color='red',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Vanna Exposure: %{y}'
+                            ))
+                        fig_bubble.update_layout(
+                            title='Vanna Exposure',
+                            xaxis_title='Strike Price',
+                            yaxis_title='Vanna Exposure',
+                            hovermode='closest',
+                            showlegend=True
+                        )
+                        st.plotly_chart(fig_bubble, use_container_width=True)
+                        
+                        # Grouped Bar Chart for Vanna Exposure by Strike
+                        def create_vex_bar_chart(calls, puts):
+                            calls_df = calls[['strike', 'VEX']].copy()
+                            calls_df['OptionType'] = 'Call'
+                            puts_df = puts[['strike', 'VEX']].copy()
+                            puts_df['OptionType'] = 'Put'
+                            combined_chart = pd.concat([calls_df, puts_df], ignore_index=True)
+                            combined_chart.sort_values(by='strike', inplace=True)
+                            fig = px.bar(
+                                combined_chart,
+                                x='strike',
+                                y='VEX',
+                                color='OptionType',
+                                title='Vanna Exposure by Strike',
+                                barmode='group'
+                            )
+                            fig.update_layout(
+                                xaxis_title='Strike Price',
+                                yaxis_title='Vanna Exposure',
+                                hovermode='x unified'
+                            )
+                            fig.update_xaxes(rangeslider=dict(visible=True))
+
+                            fig = add_current_price_line(fig, S)  # Add price line
+                            return fig
+                        
+                        fig_bar = create_vex_bar_chart(calls, puts)
+                        st.plotly_chart(fig_bar, use_container_width=True)
+
+# =========================================
+# 6) Delta Exposure Page
+# =========================================
+elif page == "Delta Exposure":
+    user_ticker = st.text_input("Enter Stock Ticker (e.g., AAPL, TSLA, SPX):", "AAPL", key="delta_ticker")
+    ticker = format_ticker(user_ticker)  # Apply formatting here
+    
+    if ticker:
+        calls, puts = fetch_all_options(ticker)
+        if calls.empty and puts.empty:
+            st.warning("No options data available for this ticker.")
+        else:
+            combined = pd.concat([calls, puts])
+            combined = combined.dropna(subset=['extracted_expiry'])
+            unique_exps = sorted({d for d in combined['extracted_expiry'].unique() if d is not None})
+            if not unique_exps:
+                st.error("No expiration dates could be extracted from contract symbols.")
+            else:
+                unique_exps_str = [d.strftime("%Y-%m-%d") for d in unique_exps]
+                expiry_date_str = st.selectbox("Select an Expiry Date (extracted from contract symbols):", options=unique_exps_str, key="delta_expiry")
+                selected_expiry = datetime.strptime(expiry_date_str, "%Y-%m-%d").date()
+                calls = calls[calls['extracted_expiry'] == selected_expiry]
+                puts = puts[puts['extracted_expiry'] == selected_expiry]
+                
+                # Get underlying price
+                stock = yf.Ticker(ticker)
+                S = stock.info.get("regularMarketPrice")
+                if S is None:
+                    S = stock.fast_info.get("lastPrice")
+                if S is None:
+                    st.error("Could not fetch underlying price.")
+                else:
+                    S = round(S, 2)
+                    st.markdown(f"**Underlying Price (S):** {S}")
+                    today = datetime.today().date()
+                    t_days = (selected_expiry - today).days
+                    if t_days <= 0:
+                        st.error("The selected expiration date is in the past!")
+                    else:
+                        t = t_days / 365.0
+                        st.markdown(f"**Time to Expiration (t in years):** {t:.4f}")
+                        
+                        def compute_delta(row, flag):
+                            sigma = row.get("impliedVolatility", None)
+                            if sigma is None or sigma <= 0:
+                                return None
+                            try:
+                                delta_val, _, _ = calculate_greeks(flag, S, row["strike"], t, sigma)
+                                return delta_val
+                            except Exception:
+                                return None
+                        
+                        calls = calls.copy()
+                        puts = puts.copy()
+                        calls["calc_delta"] = calls.apply(lambda row: compute_delta(row, "c"), axis=1)
+                        puts["calc_delta"] = puts.apply(lambda row: compute_delta(row, "p"), axis=1)
+                        
+                        calls = calls.dropna(subset=["calc_delta"])
+                        puts = puts.dropna(subset=["calc_delta"])
+                        
+                        calls["DEX"] = calls["calc_delta"] * calls["openInterest"] * 100
+                        puts["DEX"] = puts["calc_delta"] * puts["openInterest"] * 100
+                        
+                        # Bubble Chart for Delta Exposure
+                        fig_bubble = go.Figure()
+                        if not calls.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=calls['strike'],
+                                y=calls['DEX'],
+                                mode='markers',
+                                name='Calls',
+                                marker=dict(
+                                    size=calls['DEX'].abs() / 1000,
+                                    color='green',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Delta Exposure: %{y}'
+                            ))
+                        if not puts.empty:
+                            fig_bubble.add_trace(go.Scatter(
+                                x=puts['strike'],
+                                y=puts['DEX'],
+                                mode='markers',
+                                name='Puts',
+                                marker=dict(
+                                    size=puts['DEX'].abs() / 1000,
+                                    color='red',
+                                    opacity=0.6,
+                                    line=dict(width=1, color='DarkSlateGrey')
+                                ),
+                                hovertemplate='Strike: %{x}<br>Delta Exposure: %{y}'
+                            ))
+                        fig_bubble.update_layout(
+                            title='Delta Exposure',
+                            xaxis_title='Strike Price',
+                            yaxis_title='Delta Exposure',
+                            hovermode='closest',
+                            showlegend=True
+                        )
+                        st.plotly_chart(fig_bubble, use_container_width=True)
+                        
+                        # Grouped Bar Chart for Delta Exposure by Strike
+                        def create_dex_bar_chart(calls, puts):
+                            calls_df = calls[['strike', 'DEX']].copy()
+                            calls_df['OptionType'] = 'Call'
+                            puts_df = puts[['strike', 'DEX']].copy()
+                            puts_df['OptionType'] = 'Put'
+                            combined_chart = pd.concat([calls_df, puts_df], ignore_index=True)
+                            combined_chart.sort_values(by='strike', inplace=True)
+                            fig = px.bar(
+                                combined_chart,
+                                x='strike',
+                                y='DEX',
+                                color='OptionType',
+                                title='Delta Exposure by Strike',
+                                barmode='group'
+                            )
+                            fig.update_layout(
+                                xaxis_title='Strike Price',
+                                yaxis_title='Delta Exposure',
+                                hovermode='x unified'
+                            )
+                            fig.update_xaxes(rangeslider=dict(visible=True))
+
+                            fig = add_current_price_line(fig, S)  # Add price line
+                            return fig
+                        
+                        fig_bar = create_dex_bar_chart(calls, puts)
+                        st.plotly_chart(fig_bar, use_container_width=True)
 
 # -----------------------------------------
 # Auto-refresh: rerun the app every 60 seconds
